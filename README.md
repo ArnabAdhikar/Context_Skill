@@ -183,8 +183,8 @@ CLAUDE.md                   ← @-includes all 4 .claude/ files (auto-loaded eve
 ### macOS / Linux
 
 ```bash
-git clone https://github.com/your-username/context-manager
-cd context-manager
+git clone https://github.com/ArnabAdhikar/Context_Skill.git
+cd Context_Skill
 bash install.sh
 ```
 
@@ -193,8 +193,8 @@ bash install.sh
 Open PowerShell as your normal user (not Administrator):
 
 ```powershell
-git clone https://github.com/your-username/context-manager
-cd context-manager
+git clone https://github.com/ArnabAdhikar/Context_Skill.git
+cd Context_Skill
 .\install.ps1
 ```
 
