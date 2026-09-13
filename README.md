@@ -4,6 +4,35 @@ Persistent, noise-filtered project context + live file map + project memory that
 
 ---
 
+## The Problem
+
+You've been there. You open Claude Code on a project you were working on yesterday. The agent has no idea where anything is. It starts running Glob commands, reading package.json, scanning for env files — spending the first few minutes just rediscovering things it already knew. You watch tokens burn while it catches up.
+
+Or you're mid-task and the agent starts acting strange. It tries to edit a function that doesn't exist. It reads a file path it made up. It confidently references code that was never written. The context window has drifted and the agent is hallucinating, but nothing stops it — it just keeps going, making things worse.
+
+Or you switch to Cursor to try a different approach. Now you have to manually explain everything again: the architecture, the decisions you made, why the DB client lives where it does, what env vars the project needs. Context is trapped in one agent's chat history and dies there.
+
+Or the agent finishes a simple bug fix and you review the diff — there are 12 new JSDoc comments you didn't ask for, a helper function "for future use", and three TODO stubs. You asked for a one-line fix. You got a minor refactor.
+
+**These are not skill issues. They are infrastructure issues.** Claude Code ships without persistent project memory, without hallucination detection, without cross-session file awareness, and without a way to enforce minimal diffs. Every team that builds seriously with AI agents rebuilds these things from scratch — or just suffers the cost.
+
+Context Manager is that infrastructure, packaged as a single installable skill.
+
+---
+
+## What It Fixes
+
+| Pain Point | What Happens Without This | What Happens With This |
+|---|---|---|
+| Session restart | Agent re-explores the entire repo | Instant — FILE_MAP.md auto-loaded |
+| Switched sessions | Context lost, goals forgotten | CONTEXT.md carries goals + decisions |
+| Agent hallucinating | Keeps going, gets worse | Auto-compact triggered at 3 failures |
+| New agent / different tool | Paste everything manually | `/ctx share` — one command, one paste |
+| Agent adding junk code | No enforcement | CODING_RULES.md injected on init |
+| Subagent costs | Sonnet pricing on every background task | Haiku forced globally — 67% cheaper |
+
+---
+
 ## Benchmark Results
 
 > Tested against a realistic 18-file TypeScript/Node.js project (Express + Prisma + Jest).
@@ -145,19 +174,71 @@ CLAUDE.md                   ← @-includes all 4 .claude/ files (auto-loaded eve
 
 ## Install
 
-**macOS / Linux**
+### Prerequisites
+
+- **Claude Code** — CLI installed and authenticated (`claude --version`)
+- **Python 3.8+** — required for the map and memory scripts (`python3 --version`)
+- **Git** — optional, used to find project root (falls back to current directory)
+
+### macOS / Linux
+
 ```bash
-git clone <this-repo> context-manager
+git clone https://github.com/your-username/context-manager
 cd context-manager
 bash install.sh
 ```
 
-**Windows (PowerShell)**
+### Windows (PowerShell)
+
+Open PowerShell as your normal user (not Administrator):
+
 ```powershell
-git clone <this-repo> context-manager
+git clone https://github.com/your-username/context-manager
 cd context-manager
 .\install.ps1
 ```
+
+If you get an execution policy error:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+.\install.ps1
+```
+
+### What the installer does
+
+1. Creates `~/.claude/skills/`, `~/.claude/scripts/`, `~/.claude/hooks/`
+2. Copies the skill, scripts, and hooks into those directories
+3. Registers 3 hooks in `~/.claude/settings.json` (Stop + PostToolUse ×2)
+4. Sets `CLAUDE_CODE_SUBAGENT_MODEL=haiku` globally — all background agents use Haiku from this point forward
+
+The installer is safe to re-run. It skips hooks that are already registered.
+
+### Verify the install
+
+```bash
+# Check skill is present
+ls ~/.claude/skills/context-manager.md
+
+# Check scripts
+ls ~/.claude/scripts/
+
+# Check hooks
+ls ~/.claude/hooks/
+
+# Check settings (should contain "haiku" and hook registrations)
+cat ~/.claude/settings.json
+```
+
+### Quick start after install
+
+```
+1. Open any project in Claude Code
+2. Run: /ctx init
+3. Run /ctx save before ending each session
+4. Run /ctx share to hand off to another agent
+```
+
+`/ctx init` runs in ~550ms. Commit the generated `.claude/` directory alongside your code — context travels with the repo.
 
 ---
 
@@ -167,7 +248,7 @@ cd context-manager
 ```
 /ctx init
 ```
-Runs in ~550ms. Creates the full `.claude/` structure, detects stack and env vars, wires CLAUDE.md. Commit `.claude/` alongside your code — context travels with the repo.
+Creates the full `.claude/` structure, detects stack and env vars, wires CLAUDE.md.
 
 ### Commands
 
