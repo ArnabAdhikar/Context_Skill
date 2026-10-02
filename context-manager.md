@@ -2,9 +2,11 @@
 
 **Trigger**: `/ctx` or `/context`
 
+Works with **Claude Code**, **Kimi Code**, and any agent backed by an OpenAI-compatible provider (OpenRouter, OpenAI, local models, etc.). Provider-specific parts are marked; everything else is provider-agnostic.
+
 ## What this skill does
 
-Manages a `.claude/` knowledge base inside your project:
+Manages a `.claude/` knowledge base inside your project (the directory name is a convention — it works the same on any agent):
 
 | File | Purpose | Updated by |
 |---|---|---|
@@ -17,7 +19,13 @@ Manages a `.claude/` knowledge base inside your project:
 | `MEMORY/patterns.md` | Code conventions, anti-patterns | `/ctx mem` |
 | `CODING_RULES.md` | Non-negotiable code quality rules | Set once on init |
 
-All files load automatically every session via CLAUDE.md `@` includes.
+How the files load depends on the host:
+
+- **Claude Code** — auto-loaded every session via CLAUDE.md `@` includes
+- **Kimi Code** — auto-loaded every session via AGENTS.md `@` includes
+- **Other agents (OpenRouter-backed CLIs, etc.)** — run `/ctx share` and paste the output at session start, or `@`-include the files if the host supports it
+
+Command examples below use `python3 ~/.claude/scripts/...` (the Claude install location). On other hosts, use wherever you copied the scripts.
 
 ---
 
@@ -50,11 +58,16 @@ Run these steps in order:
 
 4. **Write CODING_RULES.md** — create `.claude/CODING_RULES.md` with the exact content from the Coding Rules section at the bottom of this file.
 
-5. **Wire CLAUDE.md** — check if CLAUDE.md exists in project root:
+5. **Wire the host memory file** — the agent's auto-loaded memory file, so context loads every session:
+   - **Claude Code** → `CLAUDE.md`
+   - **Kimi Code** → `AGENTS.md`
+   - **Other agents** → skip this step if the host has no auto-load file or `@`-include support; rely on `/ctx share` at session start instead.
+
+   Check if the file exists in project root:
    - If yes: append missing lines only
    - If no: create it
    
-   The final CLAUDE.md must contain (in this order):
+   The final memory file must contain (in this order):
    ```
    @.claude/CODING_RULES.md
    @.claude/CONTEXT.md
@@ -94,7 +107,7 @@ Update a specific section of CONTEXT.md. Valid: `goals`, `decisions`, `architect
 Output CONTEXT.md + FILE_MAP.md + PROJECT_MEMORY.md as one markdown block for pasting into any other agent. Prepend: "Paste this to resume context:"
 
 ### `/ctx reset`
-Confirm with user, then wipe CONTEXT.md to empty template and regenerate FILE_MAP.md and project memory. Do not touch CLAUDE.md or CODING_RULES.md.
+Confirm with user, then wipe CONTEXT.md to empty template and regenerate FILE_MAP.md and project memory. Do not touch the host memory file (CLAUDE.md / AGENTS.md) or CODING_RULES.md.
 
 ### `/ctx filter`
 Extract signal from the last assistant turn: decisions made, files changed, tasks completed or blocked. Output as bullets for `/ctx save`.
@@ -103,15 +116,21 @@ Extract signal from the last assistant turn: decisions made, files changed, task
 
 ## File Map — Auto-Update
 
-`FILE_MAP.md` is regenerated silently in the background by the `file-map-hook` after every `Write`, `Edit`, or file-creating `Bash` call. No user action needed.
+**Claude Code**: `FILE_MAP.md` is regenerated silently in the background by the `file-map-hook` after every `Write`, `Edit`, or file-creating `Bash` call. No user action needed.
 
-Use `/ctx map` only after a large refactor or if the hook missed something.
+**Kimi Code / other agents**: there is no hook system — the agent must regenerate the map itself after any file create/delete/rename:
+
+```
+python3 <scripts-dir>/generate-map.py <project-root> --output .claude/FILE_MAP.md
+```
+
+Use `/ctx map` only after a large refactor or if the map missed something.
 
 ---
 
 ## Hallucination Auto-Compact
 
-The `hallucination-guard-hook` monitors every tool call. When it detects **3 consecutive tool failures** (file not found, command not found, old_string not found), it outputs a `/compact` signal.
+**Claude Code**: the `hallucination-guard-hook` monitors every tool call. When it detects **3 consecutive tool failures** (file not found, command not found, old_string not found), it outputs a `/compact` signal.
 
 Failure types that count:
 - `Read` or `Edit` targeting a file that does not exist
@@ -121,6 +140,8 @@ Failure types that count:
 A successful tool call resets the counter.
 
 When `/compact` fires automatically: re-read `FILE_MAP.md` and `CONTEXT.md` before answering the next query. Do not guess file paths — always verify against the map.
+
+**Kimi Code / other agents**: no hook — the agent self-monitors. After **3 consecutive tool failures** of the types above, stop and re-read `FILE_MAP.md` and `CONTEXT.md` before continuing. Do not guess file paths — verify against the map. If the host supports context compaction, compact/reset using its mechanism (or start a fresh session and re-read the context files first).
 
 ---
 
@@ -187,9 +208,11 @@ The correct amount of code is the minimum needed to complete the task. When in d
 
 **Claude Code** — everything auto-loads via CLAUDE.md `@` includes.
 
-**Cursor / Copilot / other agents** — run `/ctx share`, paste the output at the start of the chat.
+**Kimi Code** — everything auto-loads via AGENTS.md `@` includes.
 
-**New Claude session with no CLAUDE.md** — same as above.
+**Cursor / Copilot / OpenRouter-backed agents / any LLM** — run `/ctx share`, paste the output at the start of the chat.
+
+**New session on any agent with no memory file wired** — same as above.
 
 ---
 

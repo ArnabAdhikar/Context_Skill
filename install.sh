@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # install.sh — Install the Context Manager skill for Claude Code
+# (hooks + model pinning are Claude-only; the skill itself also works with
+#  Kimi Code and OpenRouter-backed agents — see README "Other agents")
 # Usage: bash install.sh
 
 set -euo pipefail
@@ -100,3 +102,8 @@ echo "     → Injects CODING_RULES.md (no useless comments, no speculative code
 echo "     → Wires everything into CLAUDE.md for auto-load"
 echo "  3. Run /ctx save before ending each session"
 echo "  4. Run /ctx share to hand off to another agent"
+echo ""
+echo "Other agents (Kimi Code, OpenRouter-backed CLIs):"
+echo "  Hooks and model pinning above are Claude-only. Manually copy"
+echo "  context-manager.md to ~/.agents/skills/context-manager/SKILL.md"
+echo "  and scripts/ into ~/.agents/skills/context-manager/scripts/"

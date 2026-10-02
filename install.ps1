@@ -1,4 +1,6 @@
 # install.ps1 — Install the Context Manager skill for Claude Code (Windows)
+# (hooks + model pinning are Claude-only; the skill itself also works with
+#  Kimi Code and OpenRouter-backed agents — see README "Other agents")
 # Usage: .\install.ps1
 
 $ErrorActionPreference = "Stop"
@@ -116,3 +118,8 @@ Write-Host "     -> Injects CODING_RULES.md (no useless comments, no speculative
 Write-Host "     -> Wires everything into CLAUDE.md for auto-load"
 Write-Host "  3. Run /ctx save before ending each session"
 Write-Host "  4. Run /ctx share to hand off to another agent"
+Write-Host ""
+Write-Host "Other agents (Kimi Code, OpenRouter-backed CLIs):"
+Write-Host "  Hooks and model pinning above are Claude-only. Manually copy"
+Write-Host "  context-manager.md to ~/.agents/skills/context-manager/SKILL.md"
+Write-Host "  and scripts/ into ~/.agents/skills/context-manager/scripts/"

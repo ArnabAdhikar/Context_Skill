@@ -1,4 +1,6 @@
-# Context Manager — Claude Code Skill
+# Context Manager — agent-agnostic context skill
+
+Works with Claude Code, Kimi Code, and any agent backed by an OpenAI-compatible provider (OpenRouter, OpenAI, local models, etc.).
 
 Persistent, noise-filtered project context + live file map + project memory that travels with your codebase, auto-loads every session, enforces clean code, and keeps agents from hallucinating.
 
@@ -29,7 +31,7 @@ Context Manager is that infrastructure, packaged as a single installable skill.
 | Agent hallucinating | Keeps going, gets worse | Auto-compact triggered at 3 failures |
 | New agent / different tool | Paste everything manually | `/ctx share` — one command, one paste |
 | Agent adding junk code | No enforcement | CODING_RULES.md injected on init |
-| Subagent costs | Sonnet pricing on every background task | Haiku forced globally — 67% cheaper |
+| Subagent costs (Claude) | Sonnet pricing on every background task | Haiku forced globally — 67% cheaper |
 
 ---
 
@@ -62,6 +64,8 @@ Reduction               ████████████████░░�
 ```
 
 ### Subagent Cost: Before vs After
+
+> Claude Code example — Haiku forced globally via settings.json. On other providers, pin the cheapest model your provider offers (see "Subagent Model" below).
 
 ```
 Model           Price/1M tokens    Typical exploration    Monthly (50 sessions)
@@ -140,6 +144,7 @@ settings.json — CLAUDE_CODE_SUBAGENT_MODEL_FORCE PASS
 
 ## What Gets Installed
 
+**Claude Code** (via the installer):
 ```
 ~/.claude/
 ├── settings.json               ← env: haiku model forced for all subagents
@@ -155,7 +160,7 @@ settings.json — CLAUDE_CODE_SUBAGENT_MODEL_FORCE PASS
     └── hallucination-guard-hook.ps1  ← PostToolUse: auto /compact after 3 failures
 ```
 
-Per-project (created by `/ctx init`):
+Per-project (created by `/ctx init` — same on every host):
 ```
 .claude/
 ├── CONTEXT.md              ← Goals, decisions, tasks, blockers (human-curated)
@@ -169,6 +174,16 @@ Per-project (created by `/ctx init`):
     └── patterns.md         ← Code conventions and anti-patterns
 CLAUDE.md                   ← @-includes all 4 .claude/ files (auto-loaded every session)
 ```
+
+**Kimi Code / other agents** (manual install — no hooks, no settings.json):
+```
+~/.agents/skills/context-manager/
+├── SKILL.md                ← this skill (copy of context-manager.md)
+└── scripts/
+    ├── generate-map.py
+    └── init-memory.py
+```
+Hooks and model pinning don't exist outside Claude Code. Instead: the agent regenerates `FILE_MAP.md` itself after file changes (see the skill's "File Map — Auto-Update" section), and you pick the subagent model in your provider's own config.
 
 ---
 
@@ -204,12 +219,24 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 .\install.ps1
 ```
 
+### Other agents (Kimi Code, OpenRouter-backed CLIs, etc.)
+
+Hooks and `settings.json` don't exist outside Claude Code, so the install is a manual copy:
+
+```bash
+mkdir -p ~/.agents/skills/context-manager
+cp context-manager.md ~/.agents/skills/context-manager/SKILL.md
+cp -r scripts ~/.agents/skills/context-manager/scripts
+```
+
+Then in any project, run `/ctx init`. The agent regenerates `FILE_MAP.md` itself after file changes, and you configure the subagent model in your provider's own config (see "Subagent Model" below).
+
 ### What the installer does
 
 1. Creates `~/.claude/skills/`, `~/.claude/scripts/`, `~/.claude/hooks/`
 2. Copies the skill, scripts, and hooks into those directories
-3. Registers 3 hooks in `~/.claude/settings.json` (Stop + PostToolUse ×2)
-4. Sets `CLAUDE_CODE_SUBAGENT_MODEL=haiku` globally — all background agents use Haiku from this point forward
+3. Registers 3 hooks in `~/.claude/settings.json` (Stop + PostToolUse ×2) — **Claude Code only**
+4. Sets `CLAUDE_CODE_SUBAGENT_MODEL=haiku` globally — **Claude Code only**; all background agents use Haiku from this point forward
 
 The installer is safe to re-run. It skips hooks that are already registered.
 
@@ -333,6 +360,11 @@ Claude sees this output and runs `/compact`, resetting context while preserving 
 
 `FORCE=1` overrides any per-subagent model definition. All background agents (Explore, Plan, general-purpose) run on `claude-haiku-4-5-20251001` — the cheapest and fastest model — regardless of what they request. **67% cost reduction on subagent usage.**
 
+On other providers, apply the same principle — pin background/subagent work to the cheapest capable model:
+
+- **Kimi Code** — set the subagent model in `config.toml` (or pass `model:` when spawning subagents).
+- **OpenRouter-backed tools** — pick a low-cost model id (e.g. a small Llama/Qwen/Mistral variant) for exploration and background tasks.
+
 ### Coding Rules — Injected on init
 
 `/ctx init` writes `.claude/CODING_RULES.md` into every project:
@@ -352,8 +384,10 @@ Loaded first in CLAUDE.md so it takes precedence over all other instructions.
 | Agent | How context is delivered |
 |---|---|
 | Claude Code | Auto-loaded via CLAUDE.md `@` includes — nothing to do |
+| Kimi Code | Auto-loaded via AGENTS.md `@` includes — nothing to do |
 | Cursor | Paste `/ctx share` output into chat |
 | GitHub Copilot Chat | Paste `/ctx share` output into chat |
+| OpenRouter-backed agents | Paste `/ctx share` output into chat |
 | Any LLM | Pipe `.claude/CONTEXT.md` + `FILE_MAP.md` into system prompt |
 
 ---
@@ -362,5 +396,7 @@ Loaded first in CLAUDE.md so it takes precedence over all other instructions.
 
 - **OS**: macOS, Linux (bash installer), Windows (PowerShell installer)
 - **Python**: 3.8+ required for `generate-map.py` and `init-memory.py`
-- **Claude Code**: Any version with hooks support
+- **Claude Code**: Any version with hooks support (hooks + model pinning are Claude-only features)
+- **Kimi Code**: Any version with skill support — manual install, no hooks needed
+- **OpenRouter / other OpenAI-compatible providers**: skill is provider-agnostic; model choice is configured in your provider's own settings
 - **Git**: Optional — used to find project root; falls back to `pwd`
