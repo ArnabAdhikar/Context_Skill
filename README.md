@@ -1,6 +1,6 @@
 # Context Manager — agent-agnostic context skill
 
-Works with Claude Code, Kimi Code, and any agent backed by an OpenAI-compatible provider (OpenRouter, OpenAI, local models, etc.).
+Works with Codex, Claude Code, Kimi Code, and agents backed by OpenAI-compatible providers.
 
 Persistent, noise-filtered project context + live file map + project memory that travels with your codebase, auto-loads every session, enforces clean code, and keeps agents from hallucinating.
 
@@ -144,6 +144,20 @@ settings.json — CLAUDE_CODE_SUBAGENT_MODEL_FORCE PASS
 
 ## What Gets Installed
 
+**Codex** (via `bash install.sh --codex` or `./install.ps1 -Target Codex`):
+```
+~/.codex/
+└── skills/
+    └── context-manager/
+        ├── SKILL.md            ← Context Manager skill, loaded on demand
+        └── scripts/
+            ├── generate-map.py
+            ├── init-memory.py
+            └── init-context.py ← deterministic project initializer
+```
+
+`init-context.py` generates the context files and updates a compact managed block in the project's `AGENTS.md`. Codex reads relevant `.claude/` context files only when a task needs project history or file discovery; it does not need to re-scan the repository. The installer does not alter Codex hooks or model configuration.
+
 **Claude Code** (via the installer):
 ```
 ~/.claude/
@@ -153,7 +167,8 @@ settings.json — CLAUDE_CODE_SUBAGENT_MODEL_FORCE PASS
 │   └── context-manager.md      ← /ctx skill (all commands)
 ├── scripts/
 │   ├── generate-map.py         ← gitignore-aware tree scanner with file annotations
-│   └── init-memory.py          ← project memory bootstrapper (detects stack, env vars)
+│   ├── init-memory.py          ← project memory bootstrapper (detects stack, env vars)
+│   └── init-context.py         ← deterministic initializer and host wiring
 └── hooks/
     ├── context-save-hook.ps1   ← Stop hook: reminds to /ctx save if context is stale
     ├── file-map-hook.ps1       ← PostToolUse: regenerates FILE_MAP.md on file changes
@@ -181,7 +196,8 @@ CLAUDE.md                   ← @-includes all 4 .claude/ files (auto-loaded eve
 ├── SKILL.md                ← this skill (copy of context-manager.md)
 └── scripts/
     ├── generate-map.py
-    └── init-memory.py
+    ├── init-memory.py
+    └── init-context.py
 ```
 Hooks and model pinning don't exist outside Claude Code. Instead: the agent regenerates `FILE_MAP.md` itself after file changes (see the skill's "File Map — Auto-Update" section), and you pick the subagent model in your provider's own config.
 
@@ -200,8 +216,10 @@ Hooks and model pinning don't exist outside Claude Code. Instead: the agent rege
 ```bash
 git clone https://github.com/ArnabAdhikar/Context_Skill.git
 cd Context_Skill
-bash install.sh
+bash install.sh --codex
 ```
+
+Use `bash install.sh` for Claude Code, or `bash install.sh --all` for both hosts.
 
 ### Windows (PowerShell)
 
@@ -210,14 +228,27 @@ Open PowerShell as your normal user (not Administrator):
 ```powershell
 git clone https://github.com/ArnabAdhikar/Context_Skill.git
 cd Context_Skill
-.\install.ps1
+.\install.ps1 -Target Codex
 ```
+
+Use `.\install.ps1` for Claude Code, or `.\install.ps1 -Target All` for both hosts.
 
 If you get an execution policy error:
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 .\install.ps1
 ```
+
+### Codex quick start
+
+1. Restart Codex after installation so it discovers the skill.
+2. In a project, ask Codex to use `$context-manager`, or run:
+
+```bash
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/context-manager/scripts/init-context.py" . --host codex
+```
+
+3. Ask Codex to regenerate the map after creates, deletes, renames, or broad refactors. This keeps `FILE_MAP.md` trustworthy without changing global Codex settings.
 
 ### Other agents (Kimi Code, OpenRouter-backed CLIs, etc.)
 
@@ -233,26 +264,24 @@ Then in any project, run `/ctx init`. The agent regenerates `FILE_MAP.md` itself
 
 ### What the installer does
 
-1. Creates `~/.claude/skills/`, `~/.claude/scripts/`, `~/.claude/hooks/`
-2. Copies the skill, scripts, and hooks into those directories
-3. Registers 3 hooks in `~/.claude/settings.json` (Stop + PostToolUse ×2) — **Claude Code only**
-4. Sets `CLAUDE_CODE_SUBAGENT_MODEL=haiku` globally — **Claude Code only**; all background agents use Haiku from this point forward
+1. `--codex` creates `$CODEX_HOME/skills/context-manager/` (default `~/.codex/...`) and copies the skill plus all three scripts.
+2. `--claude` creates the existing `~/.claude/` skill, scripts, and hook directories.
+3. Claude installation registers 3 hooks in `~/.claude/settings.json` and pins Claude subagents to Haiku.
+4. `--all` performs both installations. Codex settings and model selection are not modified.
 
 The installer is safe to re-run. It skips hooks that are already registered.
 
 ### Verify the install
 
 ```bash
-# Check skill is present
+# Codex skill and scripts
+ls "${CODEX_HOME:-$HOME/.codex}/skills/context-manager/SKILL.md"
+ls "${CODEX_HOME:-$HOME/.codex}/skills/context-manager/scripts/"
+
+# Claude Code installation, if selected
 ls ~/.claude/skills/context-manager.md
-
-# Check scripts
 ls ~/.claude/scripts/
-
-# Check hooks
 ls ~/.claude/hooks/
-
-# Check settings (should contain "haiku" and hook registrations)
 cat ~/.claude/settings.json
 ```
 
@@ -383,6 +412,7 @@ Loaded first in CLAUDE.md so it takes precedence over all other instructions.
 
 | Agent | How context is delivered |
 |---|---|
+| Codex | Installed as `$CODEX_HOME/skills/context-manager`; `AGENTS.md` directs on-demand context reads |
 | Claude Code | Auto-loaded via CLAUDE.md `@` includes — nothing to do |
 | Kimi Code | Auto-loaded via AGENTS.md `@` includes — nothing to do |
 | Cursor | Paste `/ctx share` output into chat |
@@ -395,7 +425,8 @@ Loaded first in CLAUDE.md so it takes precedence over all other instructions.
 ## Compatibility
 
 - **OS**: macOS, Linux (bash installer), Windows (PowerShell installer)
-- **Python**: 3.8+ required for `generate-map.py` and `init-memory.py`
+- **Python**: 3.8+ required for `generate-map.py`, `init-memory.py`, and `init-context.py`
+- **Codex**: Any version with user skills and `AGENTS.md` support; no Codex settings are changed
 - **Claude Code**: Any version with hooks support (hooks + model pinning are Claude-only features)
 - **Kimi Code**: Any version with skill support — manual install, no hooks needed
 - **OpenRouter / other OpenAI-compatible providers**: skill is provider-agnostic; model choice is configured in your provider's own settings

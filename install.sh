@@ -1,109 +1,125 @@
 #!/usr/bin/env bash
-# install.sh — Install the Context Manager skill for Claude Code
-# (hooks + model pinning are Claude-only; the skill itself also works with
-#  Kimi Code and OpenRouter-backed agents — see README "Other agents")
-# Usage: bash install.sh
+# Install the Context Manager skill for Claude Code, Codex, or both.
+# Usage: bash install.sh [--claude|--codex|--all]
 
 set -euo pipefail
 
-CLAUDE_DIR="$HOME/.claude"
-SKILLS_DIR="$CLAUDE_DIR/skills"
-HOOKS_DIR="$CLAUDE_DIR/hooks"
-SCRIPTS_DIR="$CLAUDE_DIR/scripts"
-SETTINGS_FILE="$CLAUDE_DIR/settings.json"
+TARGET="claude"
+case "${1:-}" in
+  ""|--claude) TARGET="claude" ;;
+  --codex) TARGET="codex" ;;
+  --all) TARGET="all" ;;
+  -h|--help)
+    printf 'Usage: bash install.sh [--claude|--codex|--all]\n'
+    exit 0
+    ;;
+  *)
+    printf 'Unknown option: %s\nUsage: bash install.sh [--claude|--codex|--all]\n' "$1" >&2
+    exit 2
+    ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLAUDE_DIR="$HOME/.claude"
+CODEX_DIR="${CODEX_HOME:-$HOME/.codex}"
 
-echo "Installing Context Manager..."
+install_codex() {
+  local skill_dir="$CODEX_DIR/skills/context-manager"
+  mkdir -p "$skill_dir/scripts"
+  cp "$SCRIPT_DIR/context-manager.md" "$skill_dir/SKILL.md"
+  cp "$SCRIPT_DIR/scripts/generate-map.py" "$skill_dir/scripts/generate-map.py"
+  cp "$SCRIPT_DIR/scripts/init-memory.py" "$skill_dir/scripts/init-memory.py"
+  cp "$SCRIPT_DIR/scripts/init-context.py" "$skill_dir/scripts/init-context.py"
+  chmod +x "$skill_dir/scripts/"*.py
 
-mkdir -p "$SKILLS_DIR" "$HOOKS_DIR" "$SCRIPTS_DIR"
+  printf '  ✓ Codex skill: %s/SKILL.md\n' "$skill_dir"
+  printf '  ✓ Codex scripts: generate-map.py, init-memory.py, init-context.py\n'
+}
 
-# ── Files ────────────────────────────────────────────────────────────────────
-cp "$SCRIPT_DIR/context-manager.md"              "$SKILLS_DIR/context-manager.md"
-echo "  ✓ Skill:   $SKILLS_DIR/context-manager.md"
+register_claude_hook() {
+  local type="$1"
+  local command="$2"
+  local name="$3"
+  local settings_file="$CLAUDE_DIR/settings.json"
 
-cp "$SCRIPT_DIR/scripts/generate-map.py"         "$SCRIPTS_DIR/generate-map.py"
-cp "$SCRIPT_DIR/scripts/init-memory.py"          "$SCRIPTS_DIR/init-memory.py"
-echo "  ✓ Scripts: generate-map.py, init-memory.py"
+  python3 - "$type" "$command" "$name" "$settings_file" <<'PYEOF'
+import json
+import sys
 
-for hook in context-save-hook file-map-hook hallucination-guard-hook; do
-  cp "$SCRIPT_DIR/hooks/${hook}.sh" "$HOOKS_DIR/${hook}.sh"
-  chmod +x "$HOOKS_DIR/${hook}.sh"
-done
-echo "  ✓ Hooks:   context-save-hook, file-map-hook, hallucination-guard-hook"
-
-# ── Register hooks in settings.json ─────────────────────────────────────────
-register_hook() {
-  local TYPE="$1"
-  local CMD="$2"
-  local NAME="$3"
-
-  if [[ -f "$SETTINGS_FILE" ]] && grep -q "$NAME" "$SETTINGS_FILE" 2>/dev/null; then
-    echo "  ✓ Already registered: $TYPE → $NAME"
-    return
-  fi
-
-  python3 - "$TYPE" "$CMD" "$NAME" "$SETTINGS_FILE" << 'PYEOF'
-import json, sys
-
-hook_type, cmd, name, path = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-
+hook_type, command, name, path = sys.argv[1:]
 try:
-    with open(path) as f:
-        settings = json.load(f)
+    with open(path, encoding="utf-8") as file:
+        settings = json.load(file)
 except (FileNotFoundError, json.JSONDecodeError):
     settings = {}
 
-hooks = settings.setdefault("hooks", {})
-bucket = hooks.setdefault(hook_type, [])
+bucket = settings.setdefault("hooks", {}).setdefault(hook_type, [])
+if not any(name in json.dumps(entry) for entry in bucket):
+    bucket.append({"hooks": [{"type": "command", "command": command}]})
 
-new_entry = {"hooks": [{"type": "command", "command": cmd}]}
-if not any(name in str(h) for h in bucket):
-    bucket.append(new_entry)
-
-with open(path, "w") as f:
-    json.dump(settings, f, indent=2)
+with open(path, "w", encoding="utf-8") as file:
+    json.dump(settings, file, indent=2)
+    file.write("\n")
 PYEOF
-  echo "  ✓ Registered: $TYPE → $NAME"
 }
 
-register_hook "Stop"        "bash $HOOKS_DIR/context-save-hook.sh"      "context-save-hook"
-register_hook "PostToolUse" "bash $HOOKS_DIR/file-map-hook.sh"          "file-map-hook"
-register_hook "PostToolUse" "bash $HOOKS_DIR/hallucination-guard-hook.sh" "hallucination-guard-hook"
+install_claude() {
+  local skills_dir="$CLAUDE_DIR/skills"
+  local hooks_dir="$CLAUDE_DIR/hooks"
+  local scripts_dir="$CLAUDE_DIR/scripts"
+  local settings_file="$CLAUDE_DIR/settings.json"
+  mkdir -p "$skills_dir" "$hooks_dir" "$scripts_dir"
 
-# ── Pin subagents to cheapest model (Haiku) globally ─────────────────────────
-python3 - "$SETTINGS_FILE" << 'PYEOF'
-import json, sys
+  cp "$SCRIPT_DIR/context-manager.md" "$skills_dir/context-manager.md"
+  cp "$SCRIPT_DIR/scripts/generate-map.py" "$scripts_dir/generate-map.py"
+  cp "$SCRIPT_DIR/scripts/init-memory.py" "$scripts_dir/init-memory.py"
+  cp "$SCRIPT_DIR/scripts/init-context.py" "$scripts_dir/init-context.py"
+  printf '  ✓ Claude skill and scripts installed\n'
+
+  for hook in context-save-hook file-map-hook hallucination-guard-hook; do
+    cp "$SCRIPT_DIR/hooks/${hook}.sh" "$hooks_dir/${hook}.sh"
+    chmod +x "$hooks_dir/${hook}.sh"
+  done
+  register_claude_hook "Stop" "bash $hooks_dir/context-save-hook.sh" "context-save-hook"
+  register_claude_hook "PostToolUse" "bash $hooks_dir/file-map-hook.sh" "file-map-hook"
+  register_claude_hook "PostToolUse" "bash $hooks_dir/hallucination-guard-hook.sh" "hallucination-guard-hook"
+  printf '  ✓ Claude hooks registered\n'
+
+  python3 - "$settings_file" <<'PYEOF'
+import json
+import sys
 
 path = sys.argv[1]
 try:
-    with open(path) as f:
-        settings = json.load(f)
+    with open(path, encoding="utf-8") as file:
+        settings = json.load(file)
 except (FileNotFoundError, json.JSONDecodeError):
     settings = {}
 
-env = settings.setdefault("env", {})
-env["CLAUDE_CODE_SUBAGENT_MODEL"] = "haiku"
-env["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"] = "1"
-
-with open(path, "w") as f:
-    json.dump(settings, f, indent=2)
+settings.setdefault("env", {}).update({
+    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
+    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+})
+with open(path, "w", encoding="utf-8") as file:
+    json.dump(settings, file, indent=2)
+    file.write("\n")
 PYEOF
-echo "  ✓ Subagents: pinned to claude-haiku (cheapest model, forced globally)"
+  printf '  ✓ Claude subagents pinned to Haiku\n'
+}
 
-echo ""
-echo "Done."
-echo ""
-echo "Quick start:"
-echo "  1. Open any project in Claude Code"
-echo "  2. Run: /ctx init"
-echo "     → Generates FILE_MAP.md (full annotated file tree)"
-echo "     → Creates .claude/MEMORY/ (stack, decisions, APIs, patterns)"
-echo "     → Injects CODING_RULES.md (no useless comments, no speculative code)"
-echo "     → Wires everything into CLAUDE.md for auto-load"
-echo "  3. Run /ctx save before ending each session"
-echo "  4. Run /ctx share to hand off to another agent"
-echo ""
-echo "Other agents (Kimi Code, OpenRouter-backed CLIs):"
-echo "  Hooks and model pinning above are Claude-only. Manually copy"
-echo "  context-manager.md to ~/.agents/skills/context-manager/SKILL.md"
-echo "  and scripts/ into ~/.agents/skills/context-manager/scripts/"
+printf 'Installing Context Manager (%s)...\n' "$TARGET"
+if [[ "$TARGET" == "codex" || "$TARGET" == "all" ]]; then
+  install_codex
+fi
+if [[ "$TARGET" == "claude" || "$TARGET" == "all" ]]; then
+  install_claude
+fi
+
+printf '\nDone.\n'
+if [[ "$TARGET" == "codex" || "$TARGET" == "all" ]]; then
+  printf 'Codex: restart Codex, then ask it to use $context-manager to initialize a project.\n'
+  printf 'Direct initialization: python3 "%s/skills/context-manager/scripts/init-context.py" <project-root> --host codex\n' "$CODEX_DIR"
+fi
+if [[ "$TARGET" == "claude" || "$TARGET" == "all" ]]; then
+  printf 'Claude Code: open a project and run /ctx init.\n'
+fi

@@ -1,8 +1,13 @@
+---
+name: context-manager
+description: Preserve project context and reduce repeated exploration.
+---
+
 # Context Manager Skill
 
-**Trigger**: `/ctx` or `/context`
+**Trigger**: `/ctx` or `/context` in Claude Code; `$context-manager` or a natural-language request in Codex.
 
-Works with **Claude Code**, **Kimi Code**, and any agent backed by an OpenAI-compatible provider (OpenRouter, OpenAI, local models, etc.). Provider-specific parts are marked; everything else is provider-agnostic.
+Works with **Codex**, **Claude Code**, **Kimi Code**, and any agent backed by an OpenAI-compatible provider. Provider-specific parts are marked; project memory, the file map, and coding rules are shared.
 
 ## What this skill does
 
@@ -21,11 +26,16 @@ Manages a `.claude/` knowledge base inside your project (the directory name is a
 
 How the files load depends on the host:
 
+- **Codex** — the installed skill is discovered from `$CODEX_HOME/skills/context-manager` (default `~/.codex/skills/context-manager`); `/ctx init` adds a compact managed block to `AGENTS.md` that tells Codex when to read relevant context files
 - **Claude Code** — auto-loaded every session via CLAUDE.md `@` includes
 - **Kimi Code** — auto-loaded every session via AGENTS.md `@` includes
 - **Other agents (OpenRouter-backed CLIs, etc.)** — run `/ctx share` and paste the output at session start, or `@`-include the files if the host supports it
 
-Command examples below use `python3 ~/.claude/scripts/...` (the Claude install location). On other hosts, use wherever you copied the scripts.
+Script locations:
+
+- **Codex**: `python3 "${CODEX_HOME:-$HOME/.codex}/skills/context-manager/scripts/<script>.py"`
+- **Claude Code**: `python3 ~/.claude/scripts/<script>.py`
+- **Manual install**: `python3 <installed-skill>/scripts/<script>.py`
 
 ---
 
@@ -36,7 +46,17 @@ Summarize what is known: read CONTEXT.md, FILE_MAP.md, and PROJECT_MEMORY.md. Pr
 
 ### `/ctx init`
 
-Run these steps in order:
+Use the deterministic initializer when it is available. It generates the map and memory, preserves existing `CONTEXT.md` and `CODING_RULES.md`, and updates only Context Manager's marked block in the host instruction file:
+
+```
+# Codex
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/context-manager/scripts/init-context.py" <project-root> --host codex
+
+# Claude Code
+python3 ~/.claude/scripts/init-context.py <project-root> --host claude
+```
+
+If the initializer is unavailable, run these steps in order:
 
 1. **Generate file map**
    ```
@@ -87,7 +107,7 @@ Update `.claude/CONTEXT.md` based on the current session:
 ### `/ctx map`
 Regenerate `.claude/FILE_MAP.md`:
 ```
-python3 ~/.claude/scripts/generate-map.py <project-root> --output .claude/FILE_MAP.md
+python3 <scripts-dir>/generate-map.py <project-root> --output .claude/FILE_MAP.md
 ```
 Confirm: "File map updated."
 
@@ -118,7 +138,13 @@ Extract signal from the last assistant turn: decisions made, files changed, task
 
 **Claude Code**: `FILE_MAP.md` is regenerated silently in the background by the `file-map-hook` after every `Write`, `Edit`, or file-creating `Bash` call. No user action needed.
 
-**Kimi Code / other agents**: there is no hook system — the agent must regenerate the map itself after any file create/delete/rename:
+**Codex**: this skill intentionally does not install global hooks or alter Codex configuration. After any create, delete, rename, or broad refactor, regenerate the map before relying on it:
+
+```
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/context-manager/scripts/generate-map.py" <project-root> --output .claude/FILE_MAP.md
+```
+
+**Kimi Code / other agents**: there is no compatible hook system — the agent must regenerate the map itself after any file create/delete/rename:
 
 ```
 python3 <scripts-dir>/generate-map.py <project-root> --output .claude/FILE_MAP.md
@@ -141,7 +167,7 @@ A successful tool call resets the counter.
 
 When `/compact` fires automatically: re-read `FILE_MAP.md` and `CONTEXT.md` before answering the next query. Do not guess file paths — always verify against the map.
 
-**Kimi Code / other agents**: no hook — the agent self-monitors. After **3 consecutive tool failures** of the types above, stop and re-read `FILE_MAP.md` and `CONTEXT.md` before continuing. Do not guess file paths — verify against the map. If the host supports context compaction, compact/reset using its mechanism (or start a fresh session and re-read the context files first).
+**Codex / Kimi Code / other agents**: no compatible hook is installed. After **3 consecutive tool failures** of the types above, stop and re-read `FILE_MAP.md` and `CONTEXT.md` before continuing. Do not guess file paths — verify against the map. Use the host's compaction mechanism when available, or start a fresh session and re-read the relevant context files first.
 
 ---
 
@@ -205,6 +231,8 @@ The correct amount of code is the minimum needed to complete the task. When in d
 ---
 
 ## Cross-Agent Usage
+
+**Codex** — install with `bash install.sh --codex`, restart Codex, then ask for `$context-manager` or use the direct `init-context.py` command above. The project-level `AGENTS.md` block directs Codex to the context files only when they are relevant, avoiding a full repository re-scan while keeping trivial edits lightweight.
 
 **Claude Code** — everything auto-loads via CLAUDE.md `@` includes.
 

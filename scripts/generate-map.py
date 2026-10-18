@@ -111,6 +111,7 @@ def get_description(path: Path) -> str:
         'license': 'License file',
         'license.md': 'License file',
         'claude.md': 'Claude Code instructions (auto-loaded)',
+        'agents.md': 'Codex/agent instructions (auto-loaded)',
         'context.md': 'Auto-managed project context',
         'file_map.md': 'Auto-generated file map',
         'dockerfile': 'Docker image definition',

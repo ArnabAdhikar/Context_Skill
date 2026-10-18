@@ -1,125 +1,86 @@
-# install.ps1 — Install the Context Manager skill for Claude Code (Windows)
-# (hooks + model pinning are Claude-only; the skill itself also works with
-#  Kimi Code and OpenRouter-backed agents — see README "Other agents")
-# Usage: .\install.ps1
+param(
+    [ValidateSet("Claude", "Codex", "All")]
+    [string]$Target = "Claude"
+)
 
 $ErrorActionPreference = "Stop"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ClaudeDir = "$env:USERPROFILE\.claude"
+$CodexDir = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { "$env:USERPROFILE\.codex" }
 
-$ClaudeDir    = "$env:USERPROFILE\.claude"
-$SkillsDir    = "$ClaudeDir\skills"
-$HooksDir     = "$ClaudeDir\hooks"
-$ScriptsDir   = "$ClaudeDir\scripts"
-$SettingsFile = "$ClaudeDir\settings.json"
-$ScriptDir    = Split-Path -Parent $MyInvocation.MyCommand.Path
-
-Write-Host "Installing Context Manager..."
-
-foreach ($dir in @($SkillsDir, $HooksDir, $ScriptsDir)) {
-    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+function Install-Codex {
+    $skillDir = Join-Path $CodexDir "skills\context-manager"
+    $scriptsDir = Join-Path $skillDir "scripts"
+    New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null
+    Copy-Item "$ScriptDir\context-manager.md" "$skillDir\SKILL.md" -Force
+    foreach ($script in @("generate-map.py", "init-memory.py", "init-context.py")) {
+        Copy-Item "$ScriptDir\scripts\$script" "$scriptsDir\$script" -Force
+    }
+    Write-Host "  OK Codex skill: $skillDir\SKILL.md"
+    Write-Host "  OK Codex scripts: generate-map.py, init-memory.py, init-context.py"
 }
 
-# ── Files ────────────────────────────────────────────────────────────────────
-Copy-Item "$ScriptDir\context-manager.md"          "$SkillsDir\context-manager.md" -Force
-Write-Host "  OK Skill:   $SkillsDir\context-manager.md"
-
-Copy-Item "$ScriptDir\scripts\generate-map.py"     "$ScriptsDir\generate-map.py" -Force
-Copy-Item "$ScriptDir\scripts\init-memory.py"      "$ScriptsDir\init-memory.py" -Force
-Write-Host "  OK Scripts: generate-map.py, init-memory.py"
-
-foreach ($hook in @("context-save-hook", "file-map-hook", "hallucination-guard-hook")) {
-    Copy-Item "$ScriptDir\hooks\$hook.ps1" "$HooksDir\$hook.ps1" -Force
-}
-Write-Host "  OK Hooks:   context-save-hook, file-map-hook, hallucination-guard-hook"
-
-# ── Register hooks in settings.json ─────────────────────────────────────────
-function Register-Hook {
-    param(
-        [string]$HookType,
-        [string]$HookCommand,
-        [string]$HookName
-    )
+function Register-ClaudeHook {
+    param([string]$HookType, [string]$HookCommand, [string]$HookName, [string]$SettingsFile)
 
     $settings = if (Test-Path $SettingsFile) {
-        try { Get-Content $SettingsFile -Raw | ConvertFrom-Json }
-        catch { [pscustomobject]@{} }
-    } else {
-        [pscustomobject]@{}
-    }
-
+        try { Get-Content $SettingsFile -Raw | ConvertFrom-Json } catch { [pscustomobject]@{} }
+    } else { [pscustomobject]@{} }
     if (-not $settings.PSObject.Properties["hooks"]) {
-        $settings | Add-Member -MemberType NoteProperty -Name "hooks" -Value ([pscustomobject]@{})
+        $settings | Add-Member NoteProperty "hooks" ([pscustomobject]@{})
     }
     if (-not $settings.hooks.PSObject.Properties[$HookType]) {
-        $settings.hooks | Add-Member -MemberType NoteProperty -Name $HookType -Value @()
+        $settings.hooks | Add-Member NoteProperty $HookType @()
     }
-
     $existing = $settings.hooks.$HookType | Where-Object { ($_ | ConvertTo-Json -Depth 5) -match [regex]::Escape($HookName) }
-    if ($existing) {
-        Write-Host "  OK Already registered: $HookType -> $HookName"
-        return
+    if (-not $existing) {
+        $entry = [pscustomobject]@{ hooks = @([pscustomobject]@{ type = "command"; command = $HookCommand }) }
+        $settings.hooks.$HookType = @($settings.hooks.$HookType) + $entry
     }
-
-    $newHook = [pscustomobject]@{
-        hooks = @([pscustomobject]@{ type = "command"; command = $HookCommand })
-    }
-    $settings.hooks.$HookType = @($settings.hooks.$HookType) + $newHook
     $settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsFile -Encoding UTF8
-    Write-Host "  OK Registered: $HookType -> $HookName"
 }
 
-Register-Hook `
-    -HookType "Stop" `
-    -HookCommand "powershell -File `"$HooksDir\context-save-hook.ps1`"" `
-    -HookName "context-save-hook"
+function Install-Claude {
+    $skillsDir = "$ClaudeDir\skills"
+    $hooksDir = "$ClaudeDir\hooks"
+    $scriptsDir = "$ClaudeDir\scripts"
+    $settingsFile = "$ClaudeDir\settings.json"
+    foreach ($dir in @($skillsDir, $hooksDir, $scriptsDir)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
 
-Register-Hook `
-    -HookType "PostToolUse" `
-    -HookCommand "powershell -File `"$HooksDir\file-map-hook.ps1`"" `
-    -HookName "file-map-hook"
+    Copy-Item "$ScriptDir\context-manager.md" "$skillsDir\context-manager.md" -Force
+    foreach ($script in @("generate-map.py", "init-memory.py", "init-context.py")) {
+        Copy-Item "$ScriptDir\scripts\$script" "$scriptsDir\$script" -Force
+    }
+    foreach ($hook in @("context-save-hook", "file-map-hook", "hallucination-guard-hook")) {
+        Copy-Item "$ScriptDir\hooks\$hook.ps1" "$hooksDir\$hook.ps1" -Force
+    }
+    Register-ClaudeHook "Stop" "powershell -File `"$hooksDir\context-save-hook.ps1`"" "context-save-hook" $settingsFile
+    Register-ClaudeHook "PostToolUse" "powershell -File `"$hooksDir\file-map-hook.ps1`"" "file-map-hook" $settingsFile
+    Register-ClaudeHook "PostToolUse" "powershell -File `"$hooksDir\hallucination-guard-hook.ps1`"" "hallucination-guard-hook" $settingsFile
 
-Register-Hook `
-    -HookType "PostToolUse" `
-    -HookCommand "powershell -File `"$HooksDir\hallucination-guard-hook.ps1`"" `
-    -HookName "hallucination-guard-hook"
-
-# ── Pin subagents to cheapest model (Haiku) globally ─────────────────────────
-$settings = if (Test-Path $SettingsFile) {
-    try { Get-Content $SettingsFile -Raw | ConvertFrom-Json }
-    catch { [pscustomobject]@{} }
-} else {
-    [pscustomobject]@{}
+    $settings = if (Test-Path $settingsFile) {
+        try { Get-Content $settingsFile -Raw | ConvertFrom-Json } catch { [pscustomobject]@{} }
+    } else { [pscustomobject]@{} }
+    if (-not $settings.PSObject.Properties["env"]) {
+        $settings | Add-Member NoteProperty "env" ([pscustomobject]@{})
+    }
+    $settings.env | Add-Member NoteProperty "CLAUDE_CODE_SUBAGENT_MODEL" "haiku" -Force
+    $settings.env | Add-Member NoteProperty "CLAUDE_CODE_SUBAGENT_MODEL_FORCE" "1" -Force
+    $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsFile -Encoding UTF8
+    Write-Host "  OK Claude skill, scripts, hooks, and Haiku pin installed"
 }
 
-if (-not $settings.PSObject.Properties["env"]) {
-    $settings | Add-Member -MemberType NoteProperty -Name "env" -Value ([pscustomobject]@{})
-}
-if (-not $settings.env.PSObject.Properties["CLAUDE_CODE_SUBAGENT_MODEL"]) {
-    $settings.env | Add-Member -MemberType NoteProperty -Name "CLAUDE_CODE_SUBAGENT_MODEL" -Value "haiku"
-} else {
-    $settings.env.CLAUDE_CODE_SUBAGENT_MODEL = "haiku"
-}
-if (-not $settings.env.PSObject.Properties["CLAUDE_CODE_SUBAGENT_MODEL_FORCE"]) {
-    $settings.env | Add-Member -MemberType NoteProperty -Name "CLAUDE_CODE_SUBAGENT_MODEL_FORCE" -Value "1"
-} else {
-    $settings.env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE = "1"
-}
-$settings | ConvertTo-Json -Depth 10 | Set-Content $SettingsFile -Encoding UTF8
-Write-Host "  OK Subagents: pinned to claude-haiku (cheapest model, forced globally)"
-
+Write-Host "Installing Context Manager ($Target)..."
+if ($Target -eq "Codex" -or $Target -eq "All") { Install-Codex }
+if ($Target -eq "Claude" -or $Target -eq "All") { Install-Claude }
 Write-Host ""
 Write-Host "Done."
-Write-Host ""
-Write-Host "Quick start:"
-Write-Host "  1. Open any project in Claude Code"
-Write-Host "  2. Run: /ctx init"
-Write-Host "     -> Generates FILE_MAP.md (full annotated file tree)"
-Write-Host "     -> Creates .claude\MEMORY\ (stack, decisions, APIs, patterns)"
-Write-Host "     -> Injects CODING_RULES.md (no useless comments, no speculative code)"
-Write-Host "     -> Wires everything into CLAUDE.md for auto-load"
-Write-Host "  3. Run /ctx save before ending each session"
-Write-Host "  4. Run /ctx share to hand off to another agent"
-Write-Host ""
-Write-Host "Other agents (Kimi Code, OpenRouter-backed CLIs):"
-Write-Host "  Hooks and model pinning above are Claude-only. Manually copy"
-Write-Host "  context-manager.md to ~/.agents/skills/context-manager/SKILL.md"
-Write-Host "  and scripts/ into ~/.agents/skills/context-manager/scripts/"
+if ($Target -eq "Codex" -or $Target -eq "All") {
+    Write-Host "Codex: restart Codex, then ask it to use `$context-manager."
+    Write-Host "Direct initialization: python `"$CodexDir\skills\context-manager\scripts\init-context.py`" <project-root> --host codex"
+}
+if ($Target -eq "Claude" -or $Target -eq "All") {
+    Write-Host "Claude Code: open a project and run /ctx init."
+}
