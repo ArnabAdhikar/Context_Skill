@@ -1,6 +1,6 @@
 # Project Memory — Context_Skill
 _Auto-managed by Context Manager. Update entries as the project evolves._
-  _Persistent, noise-filtered project context + live file map that travels with your codebase and auto-loads in every session._
+  _Works with Codex, Claude Code, Kimi Code, and agents backed by OpenAI-compatible providers._
 
 ## Memory Index
 - [Tech Stack](MEMORY/stack.md) — Runtime, frameworks, key dependencies

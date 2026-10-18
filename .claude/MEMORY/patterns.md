@@ -2,7 +2,7 @@
 name: Code Patterns
 description: Conventions, patterns, and anti-patterns specific to this codebase
 type: project
-last_updated: 2026-09-13
+last_updated: 2026-10-18
 ---
 
 ## Conventions
